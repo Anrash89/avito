@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Avito Автозагрузка — проверка XLSX и генерация XML v3.0</title>
+<!-- Библиотеки: SheetJS и FileSaver с CDN -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#121922; --text:#e8eef5; --muted:#a6b3c3; --accent:#4aa3ff; --bad:#ff5d6c; --warn:#ffbf59; --good:#22c55e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  header{padding:20px 16px; text-align:center}
+  header h1{margin:0 0 6px; font-size:20px}
+  header p{margin:0;color:var(--muted)}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid #1e2937;border-radius:16px;padding:16px}
+  .grid{display:grid;gap:16px}
+  @media(min-width:900px){ .grid{grid-template-columns: 1.2fr .8fr} }
+  .drop{
+    border:2px dashed #2a3a4d;border-radius:16px;padding:24px;text-align:center;cursor:pointer;background:rgba(255,255,255,0.02)
+  }
+  .drop:hover{background:rgba(255,255,255,0.04)}
+  .drop input{display:none}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  button{
+    background:var(--accent); color:#031422; border:none; border-radius:12px; padding:10px 14px; font-weight:600; cursor:pointer
+  }
+  button[disabled]{opacity:.4;cursor:not-allowed}
+  .muted{color:var(--muted);font-size:14px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
+  .pill.bad{background:rgba(255,93,108,.15); color:var(--bad)}
+  .pill.warn{background:rgba(255,191,89,.15); color:var(--warn)}
+  .pill.good{background:rgba(34,197,94,.15); color:var(--good)}
+  .table{width:100%;border-collapse:collapse;margin-top:8px}
+  .table th,.table td{border-bottom:1px solid #203042;padding:8px;font-size:14px;vertical-align:top}
+  .table th{color:#c8d6e5;text-align:left;position:sticky;top:0;background:var(--card)}
+  details{background:#0f1620;border:1px solid #1e2937;border-radius:12px;padding:10px;margin-top:8px}
+  summary{cursor:pointer}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#0d1220; border:1px solid #223045; padding:2px 6px; border-radius:8px}
+  .hr{height:1px;background:#1e2937;margin:16px 0}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
+  .footer{opacity:.8;font-size:12px;text-align:center;margin:24px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Avito Автозагрузка — проверка XLSX (строки &ge; 85) и экспорт в XML v3.0</h1>
+  <p>Загрузи Excel шаблон Авито. Проверим строки с 85-й, подскажем ошибки и соберём Avito XML.</p>
+</header>
+
+<div class="wrap grid">
+  <section class="card">
+    <label class="drop" id="drop">
+      <input id="file" type="file" accept=".xlsx,.xls" />
+      <strong>Перетащи файл сюда</strong> или <u>нажми для выбора</u><br>
+      <span class="muted">Поддерживается: .xlsx / .xls. Первая страница, первая строка — заголовки.</span>
+    </label>
+
+    <div class="btns">
+      <button id="btnXml" disabled>Скачать Avito XML v3.0</button>
+      <button id="btnXlsx" disabled>Скачать исправленный XLSX</button>
+      <button id="btnReset" disabled style="background:#334155;color:#e8eef5">Сбросить</button>
+    </div>
+
+    <div id="meta" class="muted" style="margin-top:10px"></div>
+
+    <details open>
+      <summary><b>Ожидаемые колонки</b> (минимум для большинства категорий)</summary>
+      <div class="muted">
+        <div class="hr"></div>
+        <div class="mono">
+          Id, Category, Title, Description, Price, Address (или Region/City/Address),<br>
+          ContactPhone, ManagerName (опц.), AdStatus (Active/Removed), Images (через запятую),<br>
+          GoodsType/Condition/Brand/Model (по категории), DateBegin/DateEnd (опц.).
+        </div>
+        <div class="hr"></div>
+        <small>Формат и валидатор Avito упоминаются в документации по Автозагрузке (см. оф. ссылку на формат и xmlcheck в статьях integrators). Проверить итоговый файл можно на странице xmlcheck от Avito.</small>
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h3 style="margin:6px 0 4px">Результаты проверки</h3>
+    <div id="stats" class="muted">Файл не загружен.</div>
+    <table class="table" id="errorsTbl" style="display:none">
+      <thead>
+        <tr>
+          <th>Строка</th>
+          <th>Статус</th>
+          <th>Проблема / Поле</th>
+          <th>Значение</th>
+          <th>Подсказка</th>
+        </tr>
+      </thead>
+      <tbody id="errorsBody"></tbody>
+    </table>
+  </section>
+</div>
+
+<div class="wrap">
+  <details class="card">
+    <summary><b>Как пользоваться</b></summary>
+    <ol class="muted">
+      <li>Загрузи XLS/XLSX (первый лист). Строки 1–84 считаются эталоном; валидируем строки с 85-й.</li>
+      <li>Исправь то, что помечено <span class="pill bad">ERROR</span> / <span class="pill warn">WARN</span> прямо в исходной таблице (или доверься автоправкам).</li>
+      <li>Нажми «Скачать Avito XML v3.0» и «Скачать исправленный XLSX».</li>
+      <li>Проверь XML на официальном валидаторе «xmlcheck» от Avito (ссылка есть в документации партнёров; многие интеграторы на неё ссылаются).</li>
+    </ol>
+  </details>
+  <div class="footer">Сайт работает целиком в браузере: данные никуда не уходят.</div>
+</div>
+
+<script>
+/** ======= УТИЛИТЫ ======= **/
+const START_CHECK_ROW = 85; // по ТЗ – валидируем с 85-й строки (включительно)
+
+const REQUIRED_BASE = [
+  "Id","Category","Title","Description","Price",
+  // адрес можно как цельной строкой Address, либо Region+City (+Address)
+  // контакт:
+  "ContactPhone"
+];
+
+const OPTIONAL_BASE = [
+  "Address","Region","City","ManagerName","AdStatus","DateBegin","DateEnd",
+  "Images","GoodsType","Condition","Brand","Model","VIN","Year","Mileage","Color","BodyType"
+];
+
+// Допускаем русские заголовки → маппим к ожидаемым
+const HEADER_ALIASES = {
+  "ИД":"Id","Id":"Id","id":"Id","ID":"Id",
+  "Категория":"Category","category":"Category",
+  "Заголовок":"Title","Название":"Title",
+  "Описание":"Description",
+  "Цена":"Price","price":"Price",
+  "Телефон":"ContactPhone","Контактный телефон":"ContactPhone",
+  "Адрес":"Address","Регион":"Region","Город":"City",
+  "Менеджер":"ManagerName","Статус":"AdStatus",
+  "Картинки":"Images","Изображения":"Images","Фото":"Images",
+  "Товар":"GoodsType","Состояние":"Condition","Бренд":"Brand","Модель":"Model",
+  "Год":"Year","Пробег":"Mileage","Цвет":"Color","Тип кузова":"BodyType",
+  "Дата начала":"DateBegin","Дата конца":"DateEnd"
+};
+
+// нормализация заголовков
+function normalizeHeader(h){
+  if(!h) return "";
+  const t = String(h).trim();
+  if(HEADER_ALIASES[t] ) return HEADER_ALIASES[t];
+  // эвристики
+  if(/^id$/i.test(t)) return "Id";
+  if(/^cat/i.test(t)) return "Category";
+  if(/^title|name$/i.test(t)) return "Title";
+  if(/^desc/i.test(t)) return "Description";
+  if(/^price|цена/i.test(t)) return "Price";
+  if(/phone|тел/i.test(t)) return "ContactPhone";
+  if(/image|photo|картин|фото/i.test(t)) return "Images";
+  if(/region|регион/i.test(t)) return "Region";
+  if(/city|город/i.test(t)) return "City";
+  if(/address|адрес/i.test(t)) return "Address";
+  return t;
+}
+
+function toInt(v){
+  if(v==null) return null;
+  const s = String(v).replace(/\s+/g,'').replace(',', '.').replace(/[^\d.]/g,'');
+  if(!s) return null;
+  // Цены в целых — Avito ожидает integer (без дробной части)
+  const n = Math.round(parseFloat(s));
+  return Number.isFinite(n) ? n : null;
+}
+
+function cleanStr(v){ return v==null ? "" : String(v).trim().replace(/\s{2,}/g,' '); }
+
+function normalizePhone(v){
+  if(!v) return "";
+  let s = String(v).replace(/[^\d+]/g,'');
+  // простая нормализация, без строгой валидации E.164
+  if(s.startsWith("8")) s = "+7"+s.slice(1);
+  if(/^\d{10}$/.test(s)) s = "+7"+s; // без кода страны
+  return s;
+}
+
+function parseImages(v){
+  if(!v) return [];
+  if(Array.isArray(v)) return v;
+  return String(v).split(/[,;\n]+/).map(s => cleanStr(s)).filter(Boolean);
+}
+
+function isEmpty(v){ return v==null || String(v).trim()===""; }
+
+/** ======= ЧТЕНИЕ ФАЙЛА ======= **/
+const elFile = document.getElementById('file');
+const elDrop = document.getElementById('drop');
+const elStats = document.getElementById('stats');
+const elErrorsTbl = document.getElementById('errorsTbl');
+const elErrorsBody = document.getElementById('errorsBody');
+const elMeta = document.getElementById('meta');
+const btnXml = document.getElementById('btnXml');
+const btnXlsx = document.getElementById('btnXlsx');
+const btnReset = document.getElementById('btnReset');
+
+let state = { rows:[], headers:[], errors:[], wb:null, sheetName:null, fixedRows:[] };
+
+elDrop.addEventListener('click', () => elFile.click());
+elDrop.addEventListener('dragover', (e)=>{ e.preventDefault(); elDrop.style.background='rgba(255,255,255,0.06)'; });
+elDrop.addEventListener('dragleave', ()=>{ elDrop.style.background='rgba(255,255,255,0.02)'; });
+elDrop.addEventListener('drop', (e)=>{
+  e.preventDefault();
+  elDrop.style.background='rgba(255,255,255,0.02)';
+  if(e.dataTransfer.files && e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+elFile.addEventListener('change', (e)=>{
+  if(e.target.files && e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+btnReset.addEventListener('click', ()=>{
+  state = { rows:[], headers:[], errors:[], wb:null, sheetName:null, fixedRows:[] };
+  elFile.value = "";
+  elStats.textContent = "Файл не загружен.";
+  elErrorsTbl.style.display="none";
+  elErrorsBody.innerHTML="";
+  elMeta.textContent="";
+  btnXml.disabled = true; btnXlsx.disabled = true; btnReset.disabled = true;
+});
+
+async function loadFile(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type:'array' });
+  const sheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+
+  const arr = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:"" });
+  if(arr.length===0){ alert("Пустой файл/лист."); return; }
+
+  // заголовки
+  const rawHeaders = arr[0].map(h=>String(h||"").trim());
+  const headers = rawHeaders.map(normalizeHeader);
+
+  const rows = arr.slice(1).map((r, i)=>{
+    const o = {};
+    headers.forEach((h, j)=>{ o[h] = r[j]; });
+    o.__rowIndex = i + 2; // реальный номер строки в Excel (учитывая заголовок)
+    return o;
+  });
+
+  // фикс-копия (тримы, норм. цены/тел)
+  const fixedRows = rows.map(r=>{
+    const c = {...r};
+    for(const k of Object.keys(c)){
+      if(k==="Price") c[k] = toInt(c[k]);
+      else if(k==="ContactPhone") c[k] = normalizePhone(c[k]);
+      else c[k] = cleanStr(c[k]);
+    }
+    if(isEmpty(c.Address) && (!isEmpty(c.Region) || !isEmpty(c.City))){
+      c.Address = [c.Region, c.City, r.Address].filter(Boolean).join(", ").replace(/,\s*,/g,', ');
+    }
+    return c;
+  });
+
+  // валидируем с 85-й строки
+  const errors = [];
+  fixedRows.forEach((r, idx)=>{
+    const excelRow = idx + 2; // с заголовком
+    if(excelRow < START_CHECK_ROW) return;
+
+    // required
+    for(const req of REQUIRED_BASE){
+      if(isEmpty(r[req])) errors.push([excelRow,'ERROR',req,r[req],`Поле ${req} обязательно.`]);
+    }
+    // адрес: либо Address, либо Region+City
+    if(isEmpty(r.Address) && (isEmpty(r.Region) || isEmpty(r.City))){
+      errors.push([excelRow,'ERROR','Address/Region+City', '', 'Нужен полный адрес, либо Region и City.']);
+    }
+    // цена — целое > 0
+    if(r.Price==null || !(r.Price>=0)){ errors.push([excelRow,'ERROR','Price', r.Price, 'Price должен быть целым числом (RUB).']); }
+
+    // телефон
+    if(isEmpty(r.ContactPhone)){ /* уже ERROR выше */ }
+    else if(!/^\+?\d{7,15}$/.test(r.ContactPhone)){
+      errors.push([excelRow,'WARN','ContactPhone', r.ContactPhone, 'Проверь формат телефона, желательно E.164, напр. +79991234567.']);
+    }
+
+    // картинки — urls
+    if(!isEmpty(r.Images)){
+      const imgs = parseImages(r.Images);
+      imgs.forEach(u=>{
+        if(!/^https?:\/\//i.test(u)){
+          errors.push([excelRow,'WARN','Images', u, 'URL изображения должен начинаться с http/https.']);
+        }
+      });
+    }
+
+    // длины
+    if(String(r.Title||"").length>255) errors.push([excelRow,'WARN','Title', r.Title, 'Длина Title > 255, рекомендуем укоротить.']);
+    if(String(r.Description||"").length<10) errors.push([excelRow,'WARN','Description', r.Description, 'Описание слишком короткое.']);
+  });
+
+  // отрисовка
+  state = { rows, headers, errors, wb, sheetName, fixedRows };
+  renderStats();
+  renderErrors();
+
+  btnXml.disabled = false;
+  btnXlsx.disabled = false;
+  btnReset.disabled = false;
+
+  elMeta.innerHTML = `Лист: <span class="kbd">${sheetName}</span> · Строк: <b>${rows.length}</b> · Проверено: <b>${Math.max(0, rows.length - (START_CHECK_ROW-2))}</b> (с ${START_CHECK_ROW})`;
+}
+
+/** ======= РЕНДЕР ======= **/
+function renderStats(){
+  const total = state.rows.length;
+  const checked = Math.max(0, total - (START_CHECK_ROW-2));
+  const errs = state.errors.filter(e=>e[1]==='ERROR').length;
+  const warns = state.errors.filter(e=>e[1]==='WARN').length;
+
+  elStats.innerHTML = total
+    ? `Найдено строк: <b>${total}</b>. С ${START_CHECK_ROW}-й проверено: <b>${checked}</b>. 
+       Ошибок: <span class="pill bad">${errs}</span> · Предупреждений: <span class="pill warn">${warns}</span>`
+    : 'Файл не загружен.';
+}
+
+function renderErrors(){
+  elErrorsBody.innerHTML = "";
+  if(!state.rows.length){ elErrorsTbl.style.display="none"; return; }
+  elErrorsTbl.style.display="table";
+
+  if(!state.errors.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="5"><span class="pill good">OK</span> Ошибок не найдено в проверяемом диапазоне (с ${START_CHECK_ROW}-й строки).</td>`;
+    elErrorsBody.appendChild(tr);
+    return;
+  }
+
+  state.errors.forEach(([row, level, field, value, help])=>{
+    const tr = document.createElement('tr');
+    const pill = level==='ERROR' ? 'bad' : 'warn';
+    tr.innerHTML = `
+      <td>#${row}</td>
+      <td><span class="pill ${pill}">${level}</span></td>
+      <td><code>${field}</code></td>
+      <td class="mono">${(value??"").toString().slice(0,200)}</td>
+      <td>${help}</td>
+    `;
+    elErrorsBody.appendChild(tr);
+  });
+}
+
+/** ======= ГЕНЕРАЦИЯ XML ======= **/
+function buildXml(){
+  const rows = state.fixedRows;
+  const esc = (s)=> String(s??"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;" }[m]));
+  const xmlParts = [];
+  xmlParts.push('<?xml version="1.0" encoding="UTF-8"?>');
+  // formatVersion="3" — актуальный формат фида Авито; target может быть "Avito.ru"
+  xmlParts.push('<Ads formatVersion="3" target="Avito.ru">');
+  rows.forEach(r=>{
+    xmlParts.push('  <Ad>');
+
+    // БАЗОВЫЕ
+    if(!isEmpty(r.Id))           xmlParts.push(`    <Id>${esc(r.Id)}</Id>`);
+    if(!isEmpty(r.DateBegin))    xmlParts.push(`    <DateBegin>${esc(r.DateBegin)}</DateBegin>`);
+    if(!isEmpty(r.DateEnd))      xmlParts.push(`    <DateEnd>${esc(r.DateEnd)}</DateEnd>`);
+    if(!isEmpty(r.AdStatus))     xmlParts.push(`    <AdStatus>${esc(r.AdStatus)}</AdStatus>`);
+    if(!isEmpty(r.Category))     xmlParts.push(`    <Category>${esc(r.Category)}</Category>`);
+    if(!isEmpty(r.GoodsType))    xmlParts.push(`    <GoodsType>${esc(r.GoodsType)}</GoodsType>`);
+    if(!isEmpty(r.Title))        xmlParts.push(`    <Title>${esc(r.Title)}</Title>`);
+    if(!isEmpty(r.Description))  xmlParts.push(`    <Description>${esc(r.Description)}</Description>`);
+    if(r.Price!=null)            xmlParts.push(`    <Price>${esc(r.Price)}</Price>`);
+
+    // ЛОКАЦИЯ (упрощённая модель)
+    const region = r.Region, city = r.City, addr = r.Address;
+    if(!isEmpty(addr)){
+      xmlParts.push(`    <Address>${esc(addr)}</Address>`);
+    } else if(!isEmpty(region) || !isEmpty(city)) {
+      xmlParts.push(`    <Region>${esc(region||"")}</Region>`);
+      if(!isEmpty(city)) xmlParts.push(`    <City>${esc(city)}</City>`);
+    }
+
+    // КОНТАКТЫ
+    if(!isEmpty(r.ManagerName))  xmlParts.push(`    <ManagerName>${esc(r.ManagerName)}</ManagerName>`);
+    if(!isEmpty(r.ContactPhone)) xmlParts.push(`    <ContactPhone>${esc(r.ContactPhone)}</ContactPhone>`);
+
+    // ДОПОЛНИТЕЛЬНЫЕ ПОЛЯ (по категориям)
+    ["Condition","Brand","Model","VIN","Year","Mileage","Color","BodyType"].forEach(k=>{
+      if(!isEmpty(r[k])) xmlParts.push(`    <${k}>${esc(r[k])}</${k}>`);
+    });
+
+    // Изображения
+    const imgs = parseImages(r.Images);
+    if(imgs.length){
+      xmlParts.push(`    <Images>`);
+      imgs.forEach(u=> xmlParts.push(`      <Image url="${esc(u)}" />`));
+      xmlParts.push(`    </Images>`);
+    }
+
+    xmlParts.push('  </Ad>');
+  });
+  xmlParts.push('</Ads>');
+  return xmlParts.join('\n');
+}
+
+/** ======= СКАЧАТЬ ФАЙЛЫ ======= **/
+btnXml.addEventListener('click', ()=>{
+  const xml = buildXml();
+  const blob = new Blob([xml], {type:'application/xml;charset=utf-8'});
+  saveAs(blob, `avito_feed_v3.xml`);
+});
+
+btnXlsx.addEventListener('click', ()=>{
+  // Соберём обратно в таблицу: те же заголовки, но с нормализацией значений
+  const headers = Array.from(new Set([
+    ...REQUIRED_BASE, ...OPTIONAL_BASE,
+    ...state.headers.filter(h=>!REQUIRED_BASE.includes(h)&&!OPTIONAL_BASE.includes(h))
+  ])).filter(Boolean);
+
+  const aoa = [headers];
+  state.fixedRows.forEach(r=>{
+    aoa.push(headers.map(h=> r[h] ?? ""));
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  saveAs(new Blob([wbout], {type:"application/octet-stream"}), "fixed_avito.xlsx");
+});
+</script>
+
+</body>
+</html>
