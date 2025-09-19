@@ -121,30 +121,31 @@
 <script>
 // ====== Константы маппинга и правил ======
 const DEFAULT_MAPPING = [
-  { tag: 'Id', col: 'Id', hint: 'Если нет, можно =AdId' },
-  { tag: 'AdId', col: 'AdId', hint: 'Уникальный ID объявления' },
-  { tag: 'ManagerName', col: 'ManagerName', hint: '' },
-  { tag: 'ContactPhone', col: 'ContactPhone', hint: 'Только цифры, например 79771234567' },
-  { tag: 'Address', col: 'Address', hint: '' },
-  { tag: 'Category', col: 'Category', hint: 'Напр.: Готовый бизнес' },
-  { tag: 'BusinessType', col: 'BusinessType', hint: 'Напр.: Франшизы' },
-  { tag: 'GoodsSubType', col: 'GoodsSubType', hint: '' },
-  { tag: 'FranchiseSubType', col: 'FranchiseSubType', hint: '' },
-  { tag: 'Title', col: 'Title', hint: 'Заголовок' },
-  { tag: 'Description', col: 'Description', hint: 'Можно HTML; по умолчанию экранируем' },
-  { tag: 'Price', col: 'Price', hint: 'Число ≥ 0' },
-  { tag: 'ContactMethod', col: 'ContactMethod', hint: 'Напр.: В сообщениях' },
-  { tag: 'FranchiseFee', col: 'FranchiseFee', hint: 'Паушальный взнос: число ≥ 0 (обязателен!)' },
-  { tag: 'FranchiseRoyalty', col: 'FranchiseRoyalty', hint: 'Напр.: Нет' },
-  { tag: 'Payback', col: 'Payback', hint: 'Срок окупаемости, число' },
-  { tag: 'Support', col: 'Support', hint: 'Есть/Нет' },
-  { tag: 'SupportType', col: 'SupportType', hint: 'Через | (или ; в Excel)' },
-  { tag: 'TargetAudience', col: 'TargetAudience', hint: '' },
-  { tag: 'ContactEmail', col: 'ContactEmail', hint: 'email' },
-  { tag: 'DateEnd', col: 'DateEnd', hint: 'Дата окончания публикации' },
-  { tag: 'VideoURL', col: 'VideoURL', hint: '' },
-  { tag: 'CompanyName', col: 'CompanyName', hint: '' },
-  { tag: 'Images', col: 'Images', hint: 'Ссылки через ; или перенос строки' },
+  // Русские заголовки из шаблона Авито → теги XML
+  { tag: 'Id', col: 'Уникальный идентификатор объявления', hint: 'Если нет, можно =AdId' },
+  { tag: 'AdId', col: 'Номер объявления на Авито', hint: 'Для обновления уже существующего объявления' },
+  { tag: 'ManagerName', col: 'Контактное лицо', hint: '' },
+  { tag: 'ContactPhone', col: 'Номер телефона', hint: 'Только цифры, напр. 79771234567' },
+  { tag: 'Address', col: 'Адрес', hint: '' },
+  { tag: 'Category', col: 'Категория', hint: 'Если в таблице пусто — подставляется из шапки листа' },
+  { tag: 'BusinessType', col: 'Вид бизнеса', hint: '' },
+  { tag: 'GoodsSubType', col: 'Вид франшизы', hint: '' },
+  { tag: 'FranchiseSubType', col: 'Тип франшизы', hint: '' },
+  { tag: 'Title', col: 'Название объявления', hint: '' },
+  { tag: 'Description', col: 'Описание объявления', hint: 'Можно HTML; по умолчанию экранируем' },
+  { tag: 'Price', col: 'Цена', hint: 'Число ≥ 0' },
+  { tag: 'ContactMethod', col: 'Способ связи', hint: '' },
+  { tag: 'FranchiseFee', col: 'Паушальный взнос', hint: 'Обязателен, число ≥ 0' },
+  { tag: 'FranchiseRoyalty', col: 'Роялти', hint: '' },
+  { tag: 'Payback', col: 'Окупаемость франшизы', hint: '' },
+  { tag: 'Support', col: 'Сопровождение', hint: '' },
+  { tag: 'SupportType', col: 'Тип сопровождения', hint: 'Через | или ;' },
+  { tag: 'TargetAudience', col: 'Целевая аудитория', hint: '' },
+  { tag: 'ContactEmail', col: 'Почта', hint: 'email' },
+  { tag: 'DateEnd', col: 'AvitoDateEnd', hint: 'Дата окончания публикации' },
+  { tag: 'VideoURL', col: 'Ссылка на видео', hint: '' },
+  { tag: 'CompanyName', col: 'Название компании', hint: '' },
+  { tag: 'Images', col: 'Ссылки на фото', hint: 'Ссылки через ; или перенос строки' },
 ];
 
 // обязательные поля для объявления
@@ -282,9 +283,47 @@ function fillSheetSelect(wb) {
 
 function loadSheet(name) {
   const ws = workbook.Sheets[name];
-  const json = XLSX.utils.sheet_to_json(ws, { defval:'', raw:true });
-  rows = json;
-  headers = Object.keys(json[0] || {});
+  // Читаем как массивы, чтобы самим выбрать строку заголовков
+  const arr = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:true });
+  // Найдём первую "настоящую" строку заголовков: там, где много непустых ячеек
+  let headerIdx = -1;
+  let bestCount = 0;
+  for (let i = 0; i < Math.min(arr.length, 20); i++) {
+    const filled = (arr[i]||[]).filter(v=>String(v).trim()!=='');
+    if (filled.length > bestCount) { bestCount = filled.length; headerIdx = i; }
+  }
+  if (headerIdx === -1) { rows = []; headers = []; renderPreview(); return; }
+
+  // Кандидат заголовков
+  let hdr = (arr[headerIdx]||[]).map(v=>String(v).trim());
+  // Если заголовки выглядят как пояснения ("Обязательный"/"Подробнее ..."), попробуем строку выше/ниже
+  const joined = hdr.join(' ').toLowerCase();
+  if (/обязательн|подробнее/.test(joined) && headerIdx>0) {
+    hdr = (arr[headerIdx-1]||hdr).map(v=>String(v).trim());
+    headerIdx = headerIdx-1;
+  }
+
+  // Соберём строки данных, пропуская служебные 1-2 строки после заголовков
+  let dataStart = headerIdx + 1;
+  // Если следующая строка содержит "Обязательный", пропустим её и ещё одну ("Подробнее ...")
+  const nextRow = (arr[dataStart]||[]).join(' ');
+  if (/Обязател|Подробнее/i.test(nextRow)) dataStart += 2;
+
+  headers = hdr;
+  // Превратим массивы в объекты по заголовкам
+  rows = [];
+  for (let r = dataStart; r < arr.length; r++) {
+    const row = arr[r] || [];
+    const obj = {};
+    let allEmpty = true;
+    for (let c = 0; c < headers.length; c++) {
+      const key = headers[c] || `col_${c+1}`;
+      const val = row[c] ?? '';
+      if (String(val).trim() !== '') allEmpty = false;
+      obj[key] = val;
+    }
+    if (!allEmpty) rows.push(obj);
+  }
   renderPreview();
 }
 
