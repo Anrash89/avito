@@ -3,217 +3,105 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Excel → Avito XML v3.0</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    .dropzone { border: 2px dashed rgba(0,0,0,0.15); }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-  </style>
+  <title>Excel → Avito XML</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-800">
-  <div class="max-w-3xl mx-auto p-4 md:p-8">
-    <h1 class="text-2xl md:text-3xl font-semibold mb-4">Excel → Avito XML v3.0</h1>
-    <p class="text-slate-600 mb-4">Загрузите Excel — если всё ок, сразу получите <span class="mono">.xml</span>. Если есть проблемы, увидите список ошибок.</p>
+<body>
+  <h1>Excel → Avito XML</h1>
+  <input id="file" type="file" accept=".xlsx,.xls" />
+  <button id="convert">Скачать XML</button>
 
-    <!-- 1) Загрузка -->
-    <div id="drop" class="dropzone rounded-xl p-6 bg-white flex flex-col items-center justify-center gap-3 text-center mb-4">
-      <input id="file" type="file" accept=".xlsx,.xls" class="hidden" />
-      <button id="pick" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Выбрать .xlsx</button>
-      <p class="text-slate-500 text-sm">или перетащите файл сюда</p>
-      <p id="fileName" class="text-slate-700 font-medium"></p>
-    </div>
-
-    <!-- 2) Ошибки / статус -->
-    <div class="bg-white rounded-xl p-4 mb-4">
-      <h3 class="font-semibold mb-2">Статус</h3>
-      <ul id="errors" class="text-sm list-disc pl-5 space-y-1"></ul>
-      <p id="okMsg" class="text-emerald-600 text-sm hidden">Ошибок не найдено — XML сформирован и скачан.</p>
-    </div>
-
-    <!-- 3) Предпросмотр (опционально) -->
-    <div class="bg-white rounded-xl p-4">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="font-semibold">Предпросмотр (первые 50 строк)</h3>
-        <span id="rowsInfo" class="text-sm text-slate-500"></span>
-      </div>
-      <div id="preview" class="overflow-auto max-h-80">
-        <table class="w-full text-xs" id="previewTable"></table>
-      </div>
-    </div>
-  </div>
-
-  <!-- XLSX: надёжная загрузка с резервом -->
   <script>
-  (function loadXLSX(){
-    function add(src, onload){
-      var s = document.createElement('script');
-      s.src = src; s.onload = onload; s.onerror = function(){ onload(new Error('fail')); };
-      document.head.appendChild(s);
+    const REQUIRED = ['AdId','Title','Category','BusinessType','ContactPhone','Address','FranchiseFee'];
+
+    function escapeXML(s) {
+      return String(s)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'",'&apos;');
     }
-    function start(){ if (window.XLSX) init(); else add('https://unpkg.com/xlsx@0.20.2/dist/xlsx.full.min.js', function(){ if (window.XLSX) init(); else alert('Не удалось загрузить библиотеку XLSX. Проверьте сеть/VPN.'); }); }
-    add('https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js', function(err){ if (err) start(); else start(); });
-  })();
-  </script>
 
-  <script>
-  // ====== МАППИНГ под шаблон Авито (русские имена колонок) ======
-  const M = [
-    { tag: 'Id', col: 'Уникальный идентификатор объявления' },
-    { tag: 'AdId', col: 'Номер объявления на Авито' },
-    { tag: 'ManagerName', col: 'Контактное лицо' },
-    { tag: 'ContactPhone', col: 'Номер телефона' },
-    { tag: 'Address', col: 'Адрес' },
-    { tag: 'Category', col: 'Категория' },
-    { tag: 'BusinessType', col: 'Вид бизнеса' },
-    { tag: 'GoodsSubType', col: 'Вид франшизы' },
-    { tag: 'FranchiseSubType', col: 'Тип франшизы' },
-    { tag: 'Title', col: 'Название объявления' },
-    { tag: 'Description', col: 'Описание объявления' },
-    { tag: 'Price', col: 'Цена' },
-    { tag: 'ContactMethod', col: 'Способ связи' },
-    { tag: 'FranchiseFee', col: 'Паушальный взнос' },
-    { tag: 'FranchiseRoyalty', col: 'Роялти' },
-    { tag: 'Payback', col: 'Окупаемость франшизы' },
-    { tag: 'Support', col: 'Сопровождение' },
-    { tag: 'SupportType', col: 'Тип сопровождения' },
-    { tag: 'TargetAudience', col: 'Целевая аудитория' },
-    { tag: 'ContactEmail', col: 'Почта' },
-    { tag: 'DateEnd', col: 'AvitoDateEnd' },
-    { tag: 'VideoURL', col: 'Ссылка на видео' },
-    { tag: 'CompanyName', col: 'Название компании' },
-    { tag: 'Images', col: 'Ссылки на фото' },
-  ];
-  const REQUIRED = ['AdId','Title','Category','BusinessType','ContactPhone','Address','FranchiseFee'];
+    function normalizePhone(s) {
+      return String(s || '').replace(/\D+/g,'');
+    }
 
-  // ====== Утилиты ======
-  const $ = (s)=>document.querySelector(s);
-  const escapeXML = (s)=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
-  const phone = (s)=>String(s||'').replace(/\D+/g,'');
-  const parseImages = (s)=>!s?[]:String(s).split(/\n|;|,|\s+/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x));
+    document.getElementById('convert').addEventListener('click', () => {
+      const file = document.getElementById('file').files[0];
+      if (!file) { alert('Выберите Excel'); return; }
 
-  // ====== Состояние ======
-  let rows = [], headers = [];
-
-  // После загрузки XLSX и DOM
-  function init(){
-    $('#pick').addEventListener('click', ()=> $('#file').click());
-    $('#file').addEventListener('change', handleFile);
-
-    const drop = $('#drop');
-    ;['dragenter','dragover'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('bg-indigo-50'); }));
-    ;['dragleave','drop'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('bg-indigo-50'); }));
-    drop.addEventListener('drop', e=>{ const f = e.dataTransfer.files?.[0]; if (f) { $('#file').files = e.dataTransfer.files; handleFile(); } });
-  }
-
-  function handleFile(){
-    const f = $('#file').files?.[0];
-    if (!f){ return; }
-    $('#fileName').textContent = f.name;
-    const rdr = new FileReader();
-    rdr.onload = (e)=>{
-      try {
+      const reader = new FileReader();
+      reader.onload = (e)=>{
         const data = new Uint8Array(e.target.result);
         const wb = XLSX.read(data, { type:'array' });
-        const sheetName = wb.SheetNames.length>=2 ? wb.SheetNames[1] : wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
-        const arr = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:true });
-        // найти строку заголовков
-        let headerIdx=-1, best=0;
-        for (let i=0;i<Math.min(arr.length,20);i++){
-          const filled=(arr[i]||[]).filter(v=>String(v).trim()!=='');
-          if (filled.length>best){best=filled.length;headerIdx=i;}
-        }
-        if (headerIdx===-1) throw new Error('Не нашли заголовки');
-        let hdr=(arr[headerIdx]||[]).map(v=>String(v).trim());
-        let dataStart=headerIdx+1;
-        const next=(arr[dataStart]||[]).join(' ');
-        if (/Обязател|Подробнее/i.test(next)) dataStart+=2;
-        headers=hdr;
-        rows=[];
-        for (let r=dataStart;r<arr.length;r++){
-          const row=arr[r]||[]; let obj={}, empty=true;
-          for (let c=0;c<hdr.length;c++){ const k=hdr[c]||`col_${c+1}`; const v=row[c]??''; if(String(v).trim()!=='') empty=false; obj[k]=v; }
-          if(!empty) rows.push(obj);
-        }
-        renderPreview();
-        process();
-      } catch(err){
-        showErrors([`Не удалось прочитать Excel: ${err.message}`]);
-      }
-    };
-    rdr.readAsArrayBuffer(f);
-  }
+        const ws = wb.Sheets[wb.SheetNames[1] || wb.SheetNames[0]]; // второй лист, если есть
+        const rows = XLSX.utils.sheet_to_json(ws, { defval:'', raw:true });
 
-  function renderPreview(){
-    const table=$('#previewTable'); table.innerHTML='';
-    if(!rows.length){ $('#rowsInfo').textContent=''; return; }
-    $('#rowsInfo').textContent=`строк: ${rows.length}`;
-    const thead=document.createElement('thead'); const trh=document.createElement('tr');
-    headers.forEach(h=>{ const th=document.createElement('th'); th.className='text-left text-slate-500 border-b py-1 px-2 sticky top-0 bg-white'; th.textContent=h; trh.appendChild(th); });
-    thead.appendChild(trh); table.appendChild(thead);
-    const tbody=document.createElement('tbody');
-    rows.slice(0,50).forEach(r=>{ const tr=document.createElement('tr'); headers.forEach(h=>{ const td=document.createElement('td'); td.className='border-b py-1 px-2'; td.textContent=String(r[h]??''); tr.appendChild(td); }); tbody.appendChild(tr); });
-    table.appendChild(tbody);
-  }
+        const parts = [];
+        parts.push(`<?xml version='1.0' encoding='utf-8'?>`);
+        parts.push(`<Ads formatVersion="3" target="Avito.ru">`);
 
-  function showErrors(errs){
-    const ul=$('#errors'); ul.innerHTML=''; $('#okMsg').classList.add('hidden');
-    errs.forEach(e=>{ const li=document.createElement('li'); li.textContent=e; li.className='text-rose-600'; ul.appendChild(li); });
-  }
+        rows.forEach((row, idx)=>{
+          parts.push('<Ad>');
 
-  function ok(){ const ul=$('#errors'); ul.innerHTML=''; $('#okMsg').classList.remove('hidden'); }
+          function tag(name, value){
+            if (value==null || value==='') return;
+            if (['Price','FranchiseFee','Payback'].includes(name)) {
+              parts.push(`<${name}>${Number(value)||0}</${name}>`);
+            } else if (name==='ContactPhone') {
+              parts.push(`<${name}>${normalizePhone(value)}</${name}>`);
+            } else {
+              parts.push(`<${name}>${escapeXML(value)}</${name}>`);
+            }
+          }
 
-  function get(col, row){ return row[col] ?? ''; }
-  function val(tag, row){
-    const map = M.find(m=>m.tag===tag); const v = map? get(map.col, row):'';
-    if (tag==='ContactPhone') return phone(v);
-    if (['Price','FranchiseFee','Payback'].includes(tag)) return String(v).toString().replace(/\s+/g,'');
-    if (tag==='SupportType') return String(v).split(/\n|;|\|/).map(x=>x.trim()).filter(Boolean).join(' | ');
-    if (tag==='Images') return parseImages(v);
-    return String(v);
-  }
+          tag('Id', row['Уникальный идентификатор объявления']);
+          tag('AdId', row['Номер объявления на Авито']);
+          tag('ManagerName', row['Контактное лицо']);
+          tag('ContactPhone', row['Номер телефона']);
+          tag('Address', row['Адрес']);
+          tag('Category', row['Категория']);
+          tag('BusinessType', row['Вид бизнеса']);
+          tag('GoodsSubType', row['Вид франшизы']);
+          tag('FranchiseSubType', row['Тип франшизы']);
+          tag('Title', row['Название объявления']);
+          tag('Description', row['Описание объявления']);
+          tag('Price', row['Цена']);
+          tag('ContactMethod', row['Способ связи']);
+          tag('FranchiseFee', row['Паушальный взнос']);
+          tag('FranchiseRoyalty', row['Роялти']);
+          tag('Payback', row['Окупаемость франшизы']);
+          tag('Support', row['Сопровождение']);
+          tag('SupportType', row['Тип сопровождения']);
+          tag('TargetAudience', row['Целевая аудитория']);
+          tag('ContactEmail', row['Почта']);
+          tag('DateEnd', row['AvitoDateEnd']);
+          tag('VideoURL', row['Ссылка на видео']);
+          tag('CompanyName', row['Название компании']);
 
-  function validate(){
-    const errs=[]; const phoneRe=/^\d{10,15}$/; const emailRe=/^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    rows.forEach((r,i)=>{
-      const n=i+2; // в Excel с учётом заголовков
-      REQUIRED.forEach(tag=>{ const map=M.find(m=>m.tag===tag); const v=map? get(map.col,r):''; if(String(v).trim()==='') errs.push(`Строка ${n}: пустое обязательное поле ${tag}.`); });
-      const fee=Number(val('FranchiseFee',r)); if(isNaN(fee)||fee<0) errs.push(`Строка ${n}: Паушальный взнос должен быть числом ≥ 0.`);
-      const ph=val('ContactPhone',r); if(!phoneRe.test(ph)) errs.push(`Строка ${n}: Номер телефона — 10–15 цифр.`);
-      const em=val('ContactEmail',r); if(em && !emailRe.test(em)) errs.push(`Строка ${n}: Некорректный email.`);
-      const imgs=val('Images',r); if(get('Ссылки на фото',r) && imgs.length===0) errs.push(`Строка ${n}: указаны фото, но ссылки невалидные.`);
+          if (row['Ссылки на фото']) {
+            const urls = String(row['Ссылки на фото']).split(/\s*[,;\n]\s*/).filter(Boolean);
+            if (urls.length) {
+              parts.push('<Images>');
+              urls.forEach(u=> parts.push(`<Image url="${escapeXML(u)}" />`));
+              parts.push('</Images>');
+            }
+          }
+
+          parts.push('</Ad>');
+        });
+
+        parts.push('</Ads>');
+
+        const blob = new Blob([parts.join('')], { type:'application/xml;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'avito.xml';
+        a.click();
+      };
+      reader.readAsArrayBuffer(file);
     });
-    return errs;
-  }
-
-  function buildXML(){
-    const parts=[]; parts.push("<?xml version='1.0' encoding='utf-8'?>"); parts.push('<Ads formatVersion="3" target="Avito.ru">');
-    rows.forEach(r=>{
-      parts.push('<Ad>');
-      const ordered=['Id','AdId','ManagerName','ContactPhone','Address','Category','BusinessType','GoodsSubType','FranchiseSubType','Title','Description','Price','ContactMethod','FranchiseFee','FranchiseRoyalty','Payback','Support','SupportType','TargetAudience','ContactEmail','DateEnd','VideoURL','CompanyName'];
-      ordered.forEach(t=>{
-        if (t==='Images') return; // ниже
-        let v=val(t,r);
-        if (v==='' && !REQUIRED.includes(t)) return;
-        if (['Price','FranchiseFee','Payback'].includes(t)) parts.push(`<${t}>${Number(v)||0}</${t}>`);
-        else if (t==='Description') parts.push(`<${t}>${escapeXML(v)}</${t}>`);
-        else parts.push(`<${t}>${escapeXML(v)}</${t}>`);
-      });
-      const imgs=val('Images',r); if (imgs.length){ parts.push('<Images>'); imgs.forEach(u=> parts.push(`<Image url="${escapeXML(u)}" />`)); parts.push('</Images>'); }
-      parts.push('</Ad>');
-    });
-    parts.push('</Ads>');
-    return parts.join('');
-  }
-
-  function process(){
-    const errs=validate();
-    if (errs.length){ showErrors(errs); return; }
-    const xml=buildXML();
-    const blob=new Blob([xml], {type:'application/xml;charset=utf-8'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`avito_${new Date().toISOString().slice(0,19).replaceAll(':','-')}.xml`; document.body.appendChild(a); a.click(); a.remove();
-    ok();
-  }
   </script>
 </body>
 </html>
