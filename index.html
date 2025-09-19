@@ -1,89 +1,440 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Конвертер Excel в Avito XML</title>
-    <!-- Подключаем библиотеку SheetJS для чтения Excel прямо в браузере -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f8f9fa;
-            color: #212529;
-        }
-        header {
-            background-color: #007bff;
-            padding: 20px;
-            color: #fff;
-            text-align: center;
-        }
-        main {
-            max-width: 800px;
-            margin: 40px auto;
-            padding: 20px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            margin-top: 0;
-        }
-        .input-group {
-            margin-bottom: 20px;
-        }
-        input[type="file"] {
-            padding: 6px;
-        }
-        button {
-            display: inline-block;
-            padding: 10px 16px;
-            font-size: 16px;
-            cursor: pointer;
-            color: #fff;
-            background-color: #28a745;
-            border: none;
-            border-radius: 4px;
-            transition: background-color 0.2s;
-        }
-        button:hover {
-            background-color: #218838;
-        }
-        #status {
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 4px;
-            background-color: #f1f3f5;
-            border: 1px solid #ced4da;
-            font-size: 14px;
-            display: none;
-        }
-        footer {
-            margin-top: 40px;
-            text-align: center;
-            font-size: 12px;
-            color: #6c757d;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Excel → Avito XML v3.0 (онлайн-конвертер)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1/plugin/customParseFormat.js"></script>
+  <script>dayjs.extend(window.dayjs_plugin_customParseFormat);</script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
+  <style>
+    .dropzone { border: 2px dashed rgba(0,0,0,0.15); }
+    .scroll-shadow { box-shadow: inset 0 -8px 8px -8px rgba(0,0,0,.15); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
 </head>
-<body>
-    <header>
-        <h1>Конвертер Excel в Avito XML</h1>
-        <p>Загрузите файл Excel и получите XML‑фид для автозагрузки</p>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-6xl mx-auto p-4 md:p-8">
+    <header class="mb-6">
+      <h1 class="text-2xl md:text-3xl font-semibold">Excel → Avito XML v3.0</h1>
+      <p class="text-slate-600">Загрузите Excel и получите готовый <span class="mono">.xml</span> для автозагрузки Авито. Валидация обязательных полей включена.</p>
     </header>
-    <main>
-        <div class="input-group">
-            <input type="file" id="file-input" accept=".xls,.xlsx" />
-        </div>
-        <button id="convert-btn" disabled>Конвертировать</button>
-        <div id="status"></div>
-    </main>
-    <footer>
-        © 2025&nbsp;— Генератор XML‑фидов для Авито
-    </footer>
 
-    <script src="script.js"></script>
+    <!-- Контролы -->
+    <section class="grid md:grid-cols-3 gap-4 mb-6">
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium mb-1">1) Загрузка файла Excel</label>
+        <div id="drop" class="dropzone rounded-xl p-6 bg-white flex flex-col items-center justify-center gap-3 text-center">
+          <input id="file" type="file" accept=".xlsx,.xls" class="hidden" />
+          <button id="pick" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Выбрать .xlsx</button>
+          <p class="text-slate-500 text-sm">или перетащите файл сюда</p>
+          <p id="fileName" class="text-slate-700 font-medium"></p>
+        </div>
+      </div>
+
+      <div class="md:col-span-1">
+        <label class="block text-sm font-medium mb-1">2) Настройки</label>
+        <div class="bg-white rounded-xl p-4 space-y-3">
+          <div>
+            <label class="text-xs text-slate-500">Лист Excel</label>
+            <select id="sheetSelect" class="w-full mt-1 rounded-lg border-slate-300"></select>
+            <p class="text-xs text-slate-500 mt-1">По умолчанию берём <b>второй</b> лист, если он есть (как вы просили).</p>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Корень XML</label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <label class="text-xs">formatVersion <input id="formatVersion" class="w-full rounded border-slate-300" value="3"></label>
+              <label class="text-xs">target <input id="targetAttr" class="w-full rounded border-slate-300" value="Avito.ru"></label>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Дата/время (DateEnd) — как парсить</label>
+            <input id="dateFormats" class="w-full rounded border-slate-300" value="YYYY-MM-DDTHH:mm:ssZZ,DD.MM.YYYY HH:mm,DD.MM.YYYY" />
+            <p class="text-xs text-slate-500">Список форматов через запятую. В XML сохраняется ISO 8601.</p>
+          </div>
+          <div>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input id="escapeHTML" type="checkbox" class="rounded" checked>
+              Экранировать HTML в Description
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Карта полей -->
+    <section class="mb-6">
+      <details class="bg-white rounded-xl p-4 group" open>
+        <summary class="cursor-pointer list-none flex items-center justify-between">
+          <div>
+            <h2 class="font-semibold">3) Карта полей (имена колонок Excel → теги Avito)</h2>
+            <p class="text-sm text-slate-500">Оставьте по умолчанию, если ваши колонки названы как в примере. Можно подправить под ваш Excel.</p>
+          </div>
+          <span class="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+        </summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-slate-500 border-b">
+                <th class="py-2">Тег Avito</th>
+                <th class="py-2">Excel колонка</th>
+                <th class="py-2">Правила/подсказки</th>
+              </tr>
+            </thead>
+            <tbody id="mappingTable" class="align-top"></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <!-- Предпросмотр и валидация -->
+    <section class="grid md:grid-cols-3 gap-4 mb-6">
+      <div class="md:col-span-2">
+        <div class="bg-white rounded-xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">4) Предпросмотр данных</h3>
+            <span id="rowsInfo" class="text-sm text-slate-500"></span>
+          </div>
+          <div id="preview" class="overflow-auto max-h-80 scroll-shadow">
+            <table class="w-full text-xs" id="previewTable"></table>
+          </div>
+        </div>
+      </div>
+      <div class="md:col-span-1">
+        <div class="bg-white rounded-xl p-4 space-y-3">
+          <h3 class="font-semibold">5) Проверка и экспорт</h3>
+          <button id="validateBtn" class="w-full px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600">Проверить</button>
+          <button id="exportBtn" disabled class="w-full px-4 py-2 rounded-lg bg-emerald-600 text-white disabled:opacity-60 hover:bg-emerald-700">Скачать XML</button>
+          <div>
+            <h4 class="font-medium text-sm">Ошибки</h4>
+            <ul id="errors" class="text-sm text-rose-600 list-disc pl-5 space-y-1 max-h-56 overflow-auto"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs text-slate-500">Работает целиком в браузере. Можно разместить как GitHub Pages (просто этот файл).</footer>
+  </div>
+
+<script>
+// ====== Константы маппинга и правил ======
+const DEFAULT_MAPPING = [
+  { tag: 'Id', col: 'Id', hint: 'Если нет, можно =AdId' },
+  { tag: 'AdId', col: 'AdId', hint: 'Уникальный ID объявления' },
+  { tag: 'ManagerName', col: 'ManagerName', hint: '' },
+  { tag: 'ContactPhone', col: 'ContactPhone', hint: 'Только цифры, например 79771234567' },
+  { tag: 'Address', col: 'Address', hint: '' },
+  { tag: 'Category', col: 'Category', hint: 'Напр.: Готовый бизнес' },
+  { tag: 'BusinessType', col: 'BusinessType', hint: 'Напр.: Франшизы' },
+  { tag: 'GoodsSubType', col: 'GoodsSubType', hint: '' },
+  { tag: 'FranchiseSubType', col: 'FranchiseSubType', hint: '' },
+  { tag: 'Title', col: 'Title', hint: 'Заголовок' },
+  { tag: 'Description', col: 'Description', hint: 'Можно HTML; по умолчанию экранируем' },
+  { tag: 'Price', col: 'Price', hint: 'Число ≥ 0' },
+  { tag: 'ContactMethod', col: 'ContactMethod', hint: 'Напр.: В сообщениях' },
+  { tag: 'FranchiseFee', col: 'FranchiseFee', hint: 'Паушальный взнос: число ≥ 0 (обязателен!)' },
+  { tag: 'FranchiseRoyalty', col: 'FranchiseRoyalty', hint: 'Напр.: Нет' },
+  { tag: 'Payback', col: 'Payback', hint: 'Срок окупаемости, число' },
+  { tag: 'Support', col: 'Support', hint: 'Есть/Нет' },
+  { tag: 'SupportType', col: 'SupportType', hint: 'Через | (или ; в Excel)' },
+  { tag: 'TargetAudience', col: 'TargetAudience', hint: '' },
+  { tag: 'ContactEmail', col: 'ContactEmail', hint: 'email' },
+  { tag: 'DateEnd', col: 'DateEnd', hint: 'Дата окончания публикации' },
+  { tag: 'VideoURL', col: 'VideoURL', hint: '' },
+  { tag: 'CompanyName', col: 'CompanyName', hint: '' },
+  { tag: 'Images', col: 'Images', hint: 'Ссылки через ; или перенос строки' },
+];
+
+// обязательные поля для объявления
+const REQUIRED = ['AdId','Title','Category','BusinessType','ContactPhone','Address','FranchiseFee'];
+
+// ====== UI helpers ======
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+function createEl(tag, attrs={}, children=[]) {
+  const el = document.createElement(tag);
+  Object.entries(attrs).forEach(([k,v]) => {
+    if (k === 'class') el.className = v; else if (k === 'text') el.textContent = v; else el.setAttribute(k,v);
+  });
+  if (!Array.isArray(children)) children = [children];
+  children.filter(Boolean).forEach(c => el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
+  return el;
+}
+
+function escapeXML(s) {
+  return String(s)
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'",'&apos;');
+}
+
+function normalizePhone(s) {
+  return String(s || '').replace(/\D+/g,'');
+}
+
+function parseSupportType(s) {
+  if (s==null) return '';
+  const raw = String(s).split(/\n|;|\|/).map(x=>x.trim()).filter(Boolean);
+  return raw.join(' | ');
+}
+
+function parseImages(s) {
+  if (!s) return [];
+  return String(s).split(/\n|;|,|\s+/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x));
+}
+
+function parseDateToISO(s, fmts) {
+  if (s == null || s === '') return '';
+  // Если пришла дата из Excel как число (serial)
+  if (typeof s === 'number') {
+    try {
+      const d = XLSX.SSF.parse_date_code(s);
+      if (!d) return '';
+      const mm = String(d.m).padStart(2,'0');
+      const dd = String(d.d).padStart(2,'0');
+      const HH = String(d.H).padStart(2,'0');
+      const MM = String(d.M).padStart(2,'0');
+      const SS = String(d.S).padStart(2,'0');
+      const iso = `${d.y}-${mm}-${dd}T${HH}:${MM}:${SS}+03:00`;
+      return iso;
+    } catch(e) { return ''; }
+  }
+  const str = String(s).trim();
+  if (!str) return '';
+  // Попробуем ISO сразу
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) return str;
+  for (const f of fmts) {
+    const dt = dayjs(str, f.trim(), true);
+    if (dt.isValid()) return dt.format('YYYY-MM-DDTHH:mm:ssZZ');
+  }
+  return '';
+}
+
+// ====== Состояние ======
+let workbook = null;
+let rows = [];
+let headers = [];
+let mapping = JSON.parse(localStorage.getItem('avito_mapping') || 'null') || DEFAULT_MAPPING;
+
+// ====== Инициализация маппинга в UI ======
+function renderMapping() {
+  const tbody = $('#mappingTable');
+  tbody.innerHTML = '';
+  mapping.forEach((m, idx) => {
+    const tr = document.createElement('tr');
+    tr.className = 'border-b';
+    tr.append(
+      createEl('td', { class:'py-2 font-medium mono'}, m.tag),
+      createEl('td', { class:'py-2'}, createEl('input', { 'data-idx': idx, value: m.col || '', class:'rounded border-slate-300 w-full text-sm px-2 py-1 map-input'})),
+      createEl('td', { class:'py-2 text-slate-500'}, m.hint)
+    );
+    tbody.appendChild(tr);
+  });
+  $$('.map-input').forEach(inp => inp.addEventListener('input', e => {
+    const i = Number(e.target.getAttribute('data-idx'));
+    mapping[i].col = e.target.value;
+    localStorage.setItem('avito_mapping', JSON.stringify(mapping));
+  }));
+}
+
+renderMapping();
+
+// ====== Загрузка файла ======
+$('#pick').addEventListener('click', ()=> $('#file').click());
+$('#file').addEventListener('change', handleFile);
+
+const drop = $('#drop');
+;['dragenter','dragover'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('bg-indigo-50'); }));
+;['dragleave','drop'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('bg-indigo-50'); }));
+drop.addEventListener('drop', e=>{ const f = e.dataTransfer.files?.[0]; if (f) { $('#file').files = e.dataTransfer.files; handleFile(); } });
+
+function handleFile() {
+  const f = $('#file').files?.[0];
+  if (!f) return;
+  $('#fileName').textContent = f.name;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const data = new Uint8Array(e.target.result);
+    workbook = XLSX.read(data, { type:'array' });
+    fillSheetSelect(workbook);
+  };
+  reader.readAsArrayBuffer(f);
+}
+
+function fillSheetSelect(wb) {
+  const sel = $('#sheetSelect');
+  sel.innerHTML = '';
+  wb.SheetNames.forEach((name, i) => {
+    const opt = createEl('option', { value:name, text:`${i+1}. ${name}` });
+    sel.appendChild(opt);
+  });
+  // По умолчанию выбираем второй лист, если он есть
+  const defaultIndex = wb.SheetNames.length >= 2 ? 1 : 0;
+  sel.selectedIndex = defaultIndex;
+  loadSheet(wb.SheetNames[defaultIndex]);
+  sel.onchange = ()=> loadSheet(sel.value);
+}
+
+function loadSheet(name) {
+  const ws = workbook.Sheets[name];
+  const json = XLSX.utils.sheet_to_json(ws, { defval:'', raw:true });
+  rows = json;
+  headers = Object.keys(json[0] || {});
+  renderPreview();
+}
+
+function renderPreview() {
+  const table = $('#previewTable');
+  table.innerHTML = '';
+  if (!rows.length) { table.innerHTML = '<tbody><tr><td class="text-slate-500 py-6 text-center">Лист пуст или не распознан</td></tr></tbody>'; return; }
+  $('#rowsInfo').textContent = `строк: ${rows.length}`;
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  headers.forEach(h=> trh.appendChild(createEl('th', { class:'text-left text-slate-500 border-b py-1 px-2 sticky top-0 bg-white', text:h })));
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  rows.slice(0,100).forEach(r=>{
+    const tr = document.createElement('tr');
+    headers.forEach(h=> tr.appendChild(createEl('td', { class:'border-b py-1 px-2'}, String(r[h]))));
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+}
+
+// ====== Валидация и экспорт ======
+$('#validateBtn').addEventListener('click', ()=>{
+  const errs = validateRows();
+  showErrors(errs);
+  $('#exportBtn').disabled = errs.length>0;
+});
+
+$('#exportBtn').addEventListener('click', ()=>{
+  const errs = validateRows();
+  showErrors(errs);
+  if (errs.length) return;
+  const xml = buildXML();
+  const blob = new Blob([xml], { type:'application/xml;charset=utf-8' });
+  const a = document.createElement('a');
+  const dt = new Date();
+  a.href = URL.createObjectURL(blob);
+  a.download = `avito_${dt.toISOString().slice(0,19).replaceAll(':','-')}.xml`;
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+function showErrors(errs) {
+  const ul = $('#errors');
+  ul.innerHTML = '';
+  if (!rows.length) errs.unshift('Нет данных: загрузите Excel и выберите лист.');
+  errs.forEach(e=> ul.appendChild(createEl('li', { text:e })));
+  if (!errs.length) ul.appendChild(createEl('li', { class:'text-emerald-600', text:'Ошибок не найдено. Можно экспортировать XML.' }));
+}
+
+function validateRows() {
+  const errs = [];
+  if (!rows.length) return ['Нет данных'];
+  const phoneRe = /^\d{10,15}$/;
+  const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+  rows.forEach((row, idx)=>{
+    const rowNum = idx+2; // учтём заголовок Excel
+    // required
+    for (const tag of REQUIRED) {
+      const col = (mapping.find(m=>m.tag===tag)?.col||'').trim();
+      const val = col ? row[col] : '';
+      if (val==null || String(val).trim()==='') {
+        errs.push(`Строка ${rowNum}: обязательное поле ${tag} (${col||'не назначено'}) пустое.`);
+      }
+    }
+    // FranchiseFee ≥ 0
+    const feeCol = mapping.find(m=>m.tag==='FranchiseFee')?.col; const feeVal = Number(row[feeCol]);
+    if (isNaN(feeVal) || feeVal < 0) errs.push(`Строка ${rowNum}: FranchiseFee/Паушальный взнос должен быть числом ≥ 0.`);
+
+    // Phone
+    const phCol = mapping.find(m=>m.tag==='ContactPhone')?.col; const ph = normalizePhone(row[phCol]);
+    if (!phoneRe.test(ph)) errs.push(`Строка ${rowNum}: ContactPhone должен содержать 10–15 цифр.`);
+
+    // Email (если указан)
+    const emCol = mapping.find(m=>m.tag==='ContactEmail')?.col; const em = String(row[emCol]||'').trim();
+    if (em && !emailRe.test(em)) errs.push(`Строка ${rowNum}: некорректный email.`);
+
+    // DateEnd парсится
+    const dateCol = mapping.find(m=>m.tag==='DateEnd')?.col; const dateRaw = row[dateCol];
+    const fmts = $('#dateFormats').value.split(',');
+    const iso = parseDateToISO(dateRaw, fmts);
+    if (dateRaw && !iso) errs.push(`Строка ${rowNum}: не удалось распознать DateEnd. Исправьте формат или настройте шаблоны.`);
+
+    // Images (если есть) — валидные URL
+    const imgCol = mapping.find(m=>m.tag==='Images')?.col; const imgs = parseImages(row[imgCol]);
+    if (row[imgCol] && imgs.length===0) errs.push(`Строка ${rowNum}: Images заданы, но ни одной валидной ссылки не найдено.`);
+  });
+
+  return errs;
+}
+
+function buildXML() {
+  const fmt = $('#formatVersion').value || '3';
+  const target = $('#targetAttr').value || 'Avito.ru';
+  const escapeHtml = $('#escapeHTML').checked;
+  const fmts = $('#dateFormats').value.split(',');
+
+  const parts = [];
+  parts.push(`<?xml version='1.0' encoding='utf-8'?>`);
+  parts.push(`<Ads formatVersion="${escapeXML(fmt)}" target="${escapeXML(target)}">`);
+
+  rows.forEach(r => {
+    const get = (tag) => {
+      const col = mapping.find(m=>m.tag===tag)?.col || '';
+      return col ? r[col] : '';
+    };
+
+    const val = (tag) => {
+      let v = get(tag);
+      if (v==null) return '';
+      if (tag === 'ContactPhone') v = normalizePhone(v);
+      if (tag === 'SupportType') v = parseSupportType(v);
+      if (tag === 'DateEnd') v = parseDateToISO(v, fmts);
+      if (tag === 'Price' || tag === 'FranchiseFee' || tag === 'Payback') v = String(v).toString().replace(/\s+/g,'');
+      return String(v);
+    };
+
+    const images = parseImages(get('Images'));
+
+    parts.push('<Ad>');
+
+    // Список тегов в порядке из примера
+    const ordered = ['Id','AdId','ManagerName','ContactPhone','Address','Category','BusinessType','GoodsSubType','FranchiseSubType','Title','Description','Price','ContactMethod','FranchiseFee','FranchiseRoyalty','Payback','Support','SupportType','TargetAudience','ContactEmail','DateEnd','VideoURL','CompanyName'];
+
+    ordered.forEach(t => {
+      const v = val(t);
+      if (v === '' && !REQUIRED.includes(t)) return; // пустые не пишем (кроме обяз.)
+      if (t === 'Description') {
+        const content = escapeHtml ? escapeXML(v) : v;
+        parts.push(`<${t}>${content}</${t}>`);
+      } else if (t === 'Price' || t === 'FranchiseFee' || t === 'Payback') {
+        if (v !== '') parts.push(`<${t}>${Number(v) || 0}</${t}>`);
+      } else {
+        parts.push(`<${t}>${escapeXML(v)}</${t}>`);
+      }
+    });
+
+    if (images.length) {
+      parts.push('<Images>');
+      images.forEach(u => parts.push(`<Image url="${escapeXML(u)}" />`));
+      parts.push('</Images>');
+    }
+
+    parts.push('</Ad>');
+  });
+
+  parts.push('</Ads>');
+  return parts.join('');
+}
+</script>
 </body>
 </html>
