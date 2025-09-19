@@ -25,16 +25,30 @@ convertBtn.addEventListener('click', () => {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
-            // Находим лист с данными: выбираем первый лист, который содержит строку с названием категории «Готовый бизнес»
-            let sheetName = workbook.SheetNames[0];
-            workbook.SheetNames.forEach(name => {
-                if (/Готовый\s+бизнес/i.test(name) || /Торговля/i.test(name)) {
-                    sheetName = name;
+            // Находим лист с данными. Некоторые файлы содержат несколько листов,
+            // первый может быть «Инструкция», поэтому ищем лист, в котором во второй строке
+            // (index 1) есть название колонки «Уникальный идентификатор объявления».
+            let sheet = null;
+            let sheetName = '';
+            for (const name of workbook.SheetNames) {
+                const candidate = workbook.Sheets[name];
+                const rowsCandidate = XLSX.utils.sheet_to_json(candidate, { header: 1, defval: '' });
+                if (rowsCandidate.length > 2) {
+                    const headerRow = rowsCandidate[1] || [];
+                    if (headerRow.includes('Уникальный идентификатор объявления')) {
+                        sheet = candidate;
+                        sheetName = name;
+                        break;
+                    }
                 }
-            });
-            const sheet = workbook.Sheets[sheetName];
+            }
+            // Если не нашли по заголовку, используем первый лист
             if (!sheet) {
-                throw new Error('Не удалось найти нужный лист в таблице');
+                sheetName = workbook.SheetNames[0];
+                sheet = workbook.Sheets[sheetName];
+            }
+            if (!sheet) {
+                throw new Error('Не удалось найти лист с данными для конвертации');
             }
             // Преобразуем весь лист в массив массивов (двумерный массив)
             const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
